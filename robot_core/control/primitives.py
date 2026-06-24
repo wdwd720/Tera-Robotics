@@ -155,6 +155,11 @@ def insert_with_search(
     True when firmly seated. If given, monitor(info) is called each step.
     """
     robot.set_stiffness_mode("search")
+    # Conservative path for backends without true torque control (position shim): bound
+    # the push force lower since force is estimated, not measured/commanded directly.
+    if not getattr(robot, "supports_torque", True):
+        force_max = min(force_max, 8.0)
+        seat_force = min(seat_force, 4.0)
     axis = np.asarray(insert_axis, dtype=float)
     axis = axis / np.linalg.norm(axis)
     u, v = perp_basis(axis)
