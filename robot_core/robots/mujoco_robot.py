@@ -55,6 +55,9 @@ class MujocoRobot(Robot):
         self.grasp_site = self.model.site("drive_grasp").id
         self.grip_act = self.model.actuator("m_grip").id
         self.gr_qadr = self.model.joint("gr").qposadr[0]
+        self.grasp_weld = self.model.equality("grasp_weld").id
+        self.gripper_body = self.model.body("gripper_base").id
+        self.drive_body = self.model.body("drive").id
         self.home_key = self.model.key("home").id
         self.drive_qadr = self.model.joint("drive_free").qposadr[0]
         self.drive_dofadr = self.model.joint("drive_free").dofadr[0]
@@ -73,6 +76,8 @@ class MujocoRobot(Robot):
     # ----- high level -------------------------------------------------------
     def reset(self) -> Observation:
         mujoco.mj_resetDataKeyframe(self.model, self.data, self.home_key)
+        self.data.eq_active[self.grasp_weld] = 0
+        self.impedance.ff_wrench = np.zeros(6)
         mujoco.mj_forward(self.model, self.data)
         self.safety.reset()
         self._mode = "hold"
@@ -139,6 +144,31 @@ class MujocoRobot(Robot):
 
     def estopped(self) -> bool:
         return self.safety.tripped
+
+    def set_payload_compensation(self, force_z: float) -> None:
+        self.impedance.ff_wrench = np.array([0.0, 0.0, float(force_z), 0.0, 0.0, 0.0])
+
+    def attach_payload(self) -> None:
+        """Weld the drive to the gripper at the current relative pose (firm grasp)."""
+        q1 = self.data.xquat[self.gripper_body].copy()
+        p1 = self.data.xpos[self.gripper_body].copy()
+        q2 = self.data.xquat[self.drive_body].copy()
+        p2 = self.data.xpos[self.drive_body].copy()
+        negq1 = np.zeros(4)
+        mujoco.mju_negQuat(negq1, q1)
+        relpos = np.zeros(3)
+        mujoco.mju_rotVecQuat(relpos, p2 - p1, negq1)
+        relquat = np.zeros(4)
+        mujoco.mju_mulQuat(relquat, negq1, q2)
+        self.model.eq_data[self.grasp_weld, 0:3] = 0.0  # anchor: drive origin in its frame
+        self.model.eq_data[self.grasp_weld, 3:6] = relpos  # relpose position (body1 frame)
+        self.model.eq_data[self.grasp_weld, 6:10] = relquat  # relpose quaternion
+        if self.model.eq_data.shape[1] > 10:
+            self.model.eq_data[self.grasp_weld, 10] = 1.0  # torquescale
+        self.data.eq_active[self.grasp_weld] = 1
+
+    def detach_payload(self) -> None:
+        self.data.eq_active[self.grasp_weld] = 0
 
     # ----- low-level contract ----------------------------------------------
     def set_joint_torque(self, tau6: np.ndarray) -> None:

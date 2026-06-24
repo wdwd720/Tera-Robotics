@@ -17,7 +17,7 @@
     </default>
     <default class="finger">
       <geom type="box" rgba="0.15 0.15 0.15 1" contype="1" conaffinity="1"
-            friction="1.5 0.05 0.0001" density="1000" solref="0.004 1" solimp="0.9 0.95 0.001"/>
+            friction="2.5 0.10 0.0005" density="1000" solref="0.004 1" solimp="0.95 0.99 0.001"/>
       <joint type="slide" damping="5.0" armature="0.01"/>
     </default>
     <default class="env">
@@ -94,7 +94,7 @@
     <!-- Staging cradle: flat pedestal (narrow in y so the gripper fingers clear it)
          plus two low x end-stops to locate the drive. No y walls, so the fingers can
          descend on the drive's long sides to grasp. -->
-    <body name="cradle" pos="0.40 0 0">
+    <body name="cradle" pos="0.35 0 0">
       <geom class="env" name="g_cradle_top" type="box" pos="0 0 0.075" size="0.060 0.030 0.075"/>
       <geom class="env" name="g_cradle_xm" type="box" pos="-0.085 0 0.152" size="0.005 0.050 0.002"/>
       <geom class="env" name="g_cradle_xp" type="box" pos="0.085 0 0.152" size="0.005 0.050 0.002"/>
@@ -109,18 +109,26 @@
       <geom class="env" name="g_bay_yp" type="box" pos="0 0.0573 0" size="0.021 0.005 0.0145"/>
       <geom class="env" name="g_bay_ym" type="box" pos="0 -0.0573 0" size="0.021 0.005 0.0145"/>
       <geom class="env" name="g_bay_back" type="box" pos="0.024 0 0" size="0.005 0.060 0.0195"/>
+      <!-- Central support rail under the drive near the seated position so a released
+           drive rests level (models the tray bottom). Starts past the lift column
+           (x>=0.46) to keep the lift path clear, narrow in y to clear the fingers, and
+           5 mm below the seated drive so the drive slides freely in and only drops onto
+           it on release. -->
+      <geom class="env" name="g_bay_rail" type="box" pos="-0.061 0 -0.022" size="0.040 0.030 0.004"/>
       <site name="bay_socket" pos="0.019 0 0" size="0.008" rgba="0 0.4 1 1"/>
       <site name="bay_mouth" pos="-0.021 0 0" size="0.008" rgba="0 1 1 1"/>
     </body>
 
     <!-- 3.5 inch drive on a freejoint. Declared AFTER the arm so the qpos layout is
          j1..j6, gl, gr, then the freejoint (x y z qw qx qy qz). -->
-    <body name="drive" pos="0.40 0 0.163" childclass="drive">
+    <body name="drive" pos="0.35 0 0.163" childclass="drive">
       <freejoint name="drive_free"/>
       <geom name="g_drive" type="box" size="0.0735 0.0508 0.01305"/>
       <geom name="g_connector" type="box" pos="0.0795 0 0" size="0.006 0.020 0.008" rgba="0.9 0.7 0.1 1"/>
       <site name="drive_connector" pos="0.0855 0 0" size="0.006" rgba="1 0 1 1"/>
-      <site name="drive_grasp" pos="-0.030 0 0" size="0.006" rgba="1 0.5 0 1"/>
+      <!-- Grasp at the drive center of mass so the long drive does not pitch under
+           gravity (drooping the connector). The grip still clears the bay slot mouth. -->
+      <site name="drive_grasp" pos="0 0 0" size="0.006" rgba="1 0.5 0 1"/>
     </body>
   </worldbody>
 
@@ -128,6 +136,12 @@
     <!-- Couple the two slide fingers so one position actuator opens/closes both
          symmetrically: gl = gr. -->
     <joint joint1="gl" joint2="gr" polycoef="0 1 0 0 0"/>
+    <!-- Grasp weld: inactive by default, toggled on when the drive is firmly grasped so
+         it does not slip or rotate in the jaws (a long object is rotationally
+         underconstrained by parallel-jaw contact in sim). The task compliance comes from
+         the arm impedance at the connector/bay interface, not the grip. -->
+    <weld name="grasp_weld" body1="gripper_base" body2="drive" active="false"
+          solref="0.005 1" solimp="0.97 0.99 0.001"/>
   </equality>
 
   <actuator>
@@ -140,7 +154,7 @@
     <motor name="m_wrist3" joint="wrist_3" ctrlrange="-10 10"/>
     <!-- Gripper: one position actuator on gr; the equality mirrors gl. Command a width
          below contact and let the force limit hold the drive. -->
-    <position name="m_grip" joint="gr" kp="1500" ctrlrange="0 0.06" forcerange="-80 80"/>
+    <position name="m_grip" joint="gr" kp="3000" ctrlrange="0 0.06" forcerange="-120 120"/>
   </actuator>
 
   <sensor>
@@ -152,7 +166,7 @@
     <!-- home: arm folded forward with the tool pointing down above the cradle, gripper
          open. qpos = j1..j6, gl, gr, drive(x y z qw qx qy qz). ctrl = 6 motors + grip. -->
     <key name="home"
-         qpos="0 0.7 0.8 0 1.64 0 0.06 0.06 0.40 0 0.163 1 0 0 0"
+         qpos="0 0.7 0.8 0 1.64 0 0.06 0.06 0.35 0 0.163 1 0 0 0"
          ctrl="0 0 0 0 0 0 0.06"/>
   </keyframe>
 </mujoco>

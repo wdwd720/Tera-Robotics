@@ -48,6 +48,19 @@ class Robot(ABC):
         """True once a soft e-stop has latched. Cleared by reset()."""
         return False
 
+    def set_payload_compensation(self, force_z: float) -> None:
+        """Optional: feedforward an upward force (N) to hold a grasped payload whose
+        weight the low-level controller does not otherwise model. Default no-op."""
+
+    def attach_payload(self) -> None:
+        """Optional: declare a firm grasp so the backend treats the held object as rigid.
+
+        In sim this welds the object to the gripper. On real hardware the physical grip
+        does this, so it is a no-op. Compliance still comes from the arm controller."""
+
+    def detach_payload(self) -> None:
+        """Optional: release a previously attached payload. Default no-op."""
+
     # Low-level contract every backend must expose.
     @abstractmethod
     def set_joint_torque(self, tau6: np.ndarray) -> None:

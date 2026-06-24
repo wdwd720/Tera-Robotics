@@ -18,11 +18,12 @@ INSERT_AXIS = np.array([1.0, 0.0, 0.0])
 
 # Stiffness profiles per mode: [kx, ky, kz, krx, kry, krz].
 STIFFNESS = {
-    "hold": np.array([900.0, 900.0, 900.0, 60.0, 60.0, 60.0]),
-    "firm": np.array([1500.0, 1500.0, 1500.0, 80.0, 80.0, 80.0]),
+    "hold": np.array([900.0, 900.0, 900.0, 150.0, 150.0, 150.0]),
+    "firm": np.array([1500.0, 1500.0, 1500.0, 200.0, 200.0, 200.0]),
     # search: firm along x (insertion) and z (hold height against gravity), soft in y
-    # (lateral search), soft rotation so contact can guide the seat.
-    "search": np.array([400.0, 120.0, 500.0, 30.0, 30.0, 30.0]),
+    # (lateral search), but firm rotation so the long drive cannot cock and jam in the
+    # tight slot.
+    "search": np.array([400.0, 120.0, 500.0, 150.0, 150.0, 150.0]),
 }
 
 
@@ -38,6 +39,9 @@ class CartesianImpedance:
         self.ee_site_id = ee_site_id
         self.n_arm = n_arm
         self.damping_ratio = damping_ratio
+        # Optional world-frame feedforward wrench, e.g. to hold a grasped payload whose
+        # weight is not in the arm's qfrc_bias (the drive is a separate freejoint body).
+        self.ff_wrench = np.zeros(6)
 
     def stiffness(self, mode: str) -> np.ndarray:
         if mode not in STIFFNESS:
@@ -57,7 +61,7 @@ class CartesianImpedance:
         twist = jac @ data.qvel[: self.n_arm]
         kp = self.stiffness(mode)
         kd = 2.0 * self.damping_ratio * np.sqrt(kp)
-        wrench = kp * err - kd * twist
+        wrench = kp * err - kd * twist + self.ff_wrench
         tau = jac.T @ wrench
         tau += data.qfrc_bias[: self.n_arm]  # gravity + Coriolis feedforward
         return tau

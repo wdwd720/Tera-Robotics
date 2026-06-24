@@ -21,6 +21,16 @@ def _pose_error(ee_pose: np.ndarray, target7: np.ndarray) -> tuple[np.ndarray, n
     return dpos, drot
 
 
+def _hold_step(robot: Robot, target7: np.ndarray, grip: float):
+    """One step servoing toward a fixed target pose. Because step() interprets the action
+    as a delta from the current ee, feeding (target - current) each tick gives a real
+    position setpoint (the error grows as it sags, generating restoring force). Feeding a
+    zero delta would instead let an unmodeled payload drag the arm down."""
+    ee = robot.get_obs(with_images=False).ee_pose
+    dpos, drot = _pose_error(ee, target7)
+    return robot.step(Action.from_parts(dpos, drot, grip))
+
+
 def move_to_pose(
     robot: Robot,
     target7: np.ndarray,
@@ -29,36 +39,78 @@ def move_to_pose(
     mode: str = "hold",
     pos_tol: float = 2e-3,
     rot_tol: float = 0.03,
-    max_steps: int = 800,
-    gain: float = 1.0,
+    speed: float = 0.10,
+    max_steps: int = 1200,
+    control_dt: float = 0.02,
 ) -> bool:
-    """Servo the ee to an absolute target pose, holding the given gripper opening."""
+    """Servo the ee to an absolute target pose along a speed-limited straight line.
+
+    A waypoint advances from the start toward the target at `speed` (m/s); each step the
+    commanded delta is just (waypoint - current ee). Because the waypoint moves slowly the
+    tracking error stays small, so the pull force stays gentle and a grasped payload is not
+    yanked or tilted. Holds the given gripper opening throughout.
+    """
     robot.set_stiffness_mode(mode)
-    obs = robot.get_obs(with_images=False)
+    start = robot.get_obs(with_images=False).ee_pose[:3].copy()
+    total = float(np.linalg.norm(target7[:3] - start))
+    traveled = 0.0
     for _ in range(max_steps):
-        dpos, drot = _pose_error(obs.ee_pose, target7)
-        if np.linalg.norm(dpos) < pos_tol and np.linalg.norm(drot) < rot_tol:
+        obs = robot.get_obs(with_images=False)
+        traveled = min(total, traveled + speed * control_dt)
+        frac = 1.0 if total < 1e-9 else traveled / total
+        waypoint = start + frac * (target7[:3] - start)
+        dpos = waypoint - obs.ee_pose[:3]
+        drot = quat_error(obs.ee_pose[3:7], target7[3:7])
+        if (
+            frac >= 1.0
+            and np.linalg.norm(target7[:3] - obs.ee_pose[:3]) < pos_tol
+            and np.linalg.norm(drot) < rot_tol
+        ):
             return True
-        obs = robot.step(Action.from_parts(dpos * gain, drot * gain, grip))
+        robot.step(Action.from_parts(dpos, drot, grip))
         if robot.estopped():
             return False
-    dpos, _ = _pose_error(obs.ee_pose, target7)
-    return float(np.linalg.norm(dpos)) < 2 * pos_tol and not robot.estopped()
+    final = robot.get_obs(with_images=False)
+    return (
+        float(np.linalg.norm(target7[:3] - final.ee_pose[:3])) < 2 * pos_tol
+        and not robot.estopped()
+    )
 
 
-def grasp(robot: Robot, close_to: float = 0.1, *, settle: int = 50) -> bool:
-    """Close the gripper to a width below contact and confirm an object is held."""
+def grasp(robot: Robot, close_to: float = 0.0, *, ramp_steps: int = 20, settle: int = 25) -> bool:
+    """Close the gripper to a width below contact and confirm an object is held.
+
+    The close is ramped so the fingers do not slam the object (which would spike the
+    wrist force into the e-stop). The arm holds its pose throughout."""
+    target = robot.get_obs(with_images=False).ee_pose.copy()
+    start = robot.get_obs(with_images=False).gripper
+    for i in range(ramp_steps):
+        g = start + (close_to - start) * ((i + 1) / ramp_steps)
+        _hold_step(robot, target, g)
+        if robot.estopped():
+            return False
     for _ in range(settle):
-        obs = robot.step(Action.from_parts(np.zeros(3), np.zeros(3), close_to))
+        obs = _hold_step(robot, target, close_to)
         if robot.estopped():
             return False
     # Fingers stalled above fully-closed means something is between them.
     return obs.gripper > 0.2
 
 
+def hold(robot: Robot, steps: int, grip: float) -> bool:
+    """Hold the current pose for a number of steps (e.g. to let a payload settle)."""
+    target = robot.get_obs(with_images=False).ee_pose.copy()
+    for _ in range(steps):
+        _hold_step(robot, target, grip)
+        if robot.estopped():
+            return False
+    return True
+
+
 def open_gripper(robot: Robot, *, settle: int = 25) -> bool:
+    target = robot.get_obs(with_images=False).ee_pose.copy()
     for _ in range(settle):
-        robot.step(Action.from_parts(np.zeros(3), np.zeros(3), 1.0))
+        _hold_step(robot, target, 1.0)
         if robot.estopped():
             return False
     return True
@@ -90,23 +142,35 @@ def insert_with_search(
     spiral_turns: float = 4.0,
     grip: float = 0.1,
     force_max: float = 15.0,
+    seat_force: float = 6.0,
     max_steps: int = 2500,
+    monitor=None,
 ) -> bool:
     """Advance slowly along the insertion axis while overlaying an Archimedean spiral
     laterally, with soft lateral stiffness and a bounded insert-axis push force.
 
-    base_pose7 is the pre-insertion ee pose (at the mouth). Returns True once seated.
+    base_pose7 is the pre-insertion ee pose (at the mouth). Once the seat condition is
+    seen the drive is pushed firmly home until the insert-axis force rises (the connector
+    bottoming against the socket back), which is the real seat-detent signal. Returns
+    True when firmly seated. If given, monitor(info) is called each step.
     """
     robot.set_stiffness_mode("search")
     axis = np.asarray(insert_axis, dtype=float)
     axis = axis / np.linalg.norm(axis)
     u, v = perp_basis(axis)
     depth = 0.0
+    seated_seen = False
     for _ in range(max_steps):
+        obs = robot.get_obs(with_images=False)
+        f_world = quat_to_mat(obs.ee_pose[3:7]) @ obs.ft[:3]
+        f_insert = float(f_world @ axis)
         if robot.seated():
+            seated_seen = True
+        # Firmly home: seated and the connector pressed against the socket back.
+        if seated_seen and abs(f_insert) >= seat_force:
             robot.set_stiffness_mode("hold")
             return True
-        obs = robot.get_obs(with_images=False)
+
         frac = depth / max_depth if max_depth > 0 else 0.0
         theta = 2.0 * np.pi * spiral_turns * frac
         radius = spiral_radius * frac
@@ -115,13 +179,13 @@ def insert_with_search(
         dpos = target_pos - obs.ee_pose[:3]
         drot = quat_error(obs.ee_pose[3:7], base_pose7[3:7])
 
-        # Bound the insert-axis push: project the wrist force into the world frame.
-        f_world = quat_to_mat(obs.ee_pose[3:7]) @ obs.ft[:3]
-        f_insert = float(f_world @ axis)
         if abs(f_insert) < force_max and depth < max_depth:
             depth += advance
         elif abs(f_insert) >= force_max:
             depth = max(depth - 0.5 * advance, 0.0)
+
+        if monitor is not None:
+            monitor({"depth": depth, "f_insert": f_insert, "ft": obs.ft.copy()})
 
         robot.step(Action.from_parts(dpos, drot, grip))
         if robot.estopped():
@@ -132,9 +196,10 @@ def insert_with_search(
 
 def confirm_seat(robot: Robot, grip: float, *, hold_ticks: int = 25) -> bool:
     """Hold the seated pose and require the seat condition to stay true."""
+    target = robot.get_obs(with_images=False).ee_pose.copy()
     seated_count = 0
     for _ in range(hold_ticks):
-        robot.step(Action.from_parts(np.zeros(3), np.zeros(3), grip))
+        _hold_step(robot, target, grip)
         if robot.estopped():
             return False
         seated_count = seated_count + 1 if robot.seated() else 0
