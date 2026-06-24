@@ -1,0 +1,23 @@
+# Virtualenvs
+.venv/
+.venv-train/
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+
+# reBot artifacts
+outputs/
+datasets/
+*.mp4
+*.npz
+
+# Training trackers
+wandb/
+
+# OS
+.DS_Store

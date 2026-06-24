@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rebot"
+version = "0.0.1"
+description = "reBot: learning, control, data, and autonomy stack for datacenter maintenance robotics (drive reseat)."
+readme = "README.md"
+requires-python = ">=3.11"
+# Torch-free core. numpy and mujoco only. Torch and lerobot live in the [train]
+# and [infer] extras, installed into a separate Python 3.11 venv.
+dependencies = [
+  "numpy>=2,<3",
+  "mujoco>=3.2,<4",
+]
+
+[project.optional-dependencies]
+# opencv is only needed for image resize and video encode in the render/demo path.
+vision = ["opencv-python-headless"]
+dev = ["pytest>=8"]
+# Heavy ML stack. Install only into the Python 3.11 .venv-train, never the core env.
+train = ["lerobot>=0.5", "torch>=2.4"]
+infer = ["lerobot>=0.5", "torch>=2.4"]
+
+[tool.setuptools]
+# Explicit package list so app/, docs/, scripts/, tests/ are not packaged.
+packages = [
+  "robot_core",
+  "robot_core.robots",
+  "robot_core.control",
+  "sim",
+  "data",
+  "policies",
+  "policies.scripted",
+  "eval",
+  "perception",
+  "teleop",
+]
+
+[tool.setuptools.package-data]
+sim = ["assets/*.xml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+markers = [
+  "gl: requires an OpenGL/render context (skipped in headless CI runs)",
+  "slow: slow end-to-end tests",
+  "lerobot: requires the [train]/[infer] extra (torch/lerobot in .venv-train)",
+]

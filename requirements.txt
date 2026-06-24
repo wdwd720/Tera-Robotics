@@ -1,0 +1,6 @@
+# Torch-free core for reBot. See pyproject.toml [project.optional-dependencies]
+# for the ML training extras, which install into a separate Python 3.11 venv.
+numpy>=2,<3
+mujoco>=3.2,<4
+opencv-python-headless
+pytest>=8
