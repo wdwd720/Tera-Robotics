@@ -1,0 +1,158 @@
+<mujoco model="rebot_drive_reseat">
+  <!-- Self-contained drive-reseat scene. Primitive geoms only, no external meshes,
+       so it runs anywhere. 6-DoF torque-controlled arm, coupled parallel-jaw gripper,
+       wrist FT site, one-bay chassis with tight clearances, a 3.5in drive on a
+       freejoint in a staging cradle. See docs/architecture.md for the layout. -->
+  <compiler angle="radian" autolimits="true"/>
+  <option timestep="0.002" integrator="implicitfast" cone="elliptic" gravity="0 0 -9.81"/>
+
+  <default>
+    <default class="arm">
+      <!-- Arm links do not collide (contype/conaffinity 0): avoids spurious arm
+           self-collision and arm-vs-environment contacts. Only fingers and the
+           drive participate in contact. -->
+      <geom type="capsule" size="0.04" rgba="0.30 0.40 0.70 1" contype="0" conaffinity="0" density="700"/>
+      <joint type="hinge" damping="1.0" armature="0.05"/>
+      <motor gear="1" ctrlrange="-50 50"/>
+    </default>
+    <default class="finger">
+      <geom type="box" rgba="0.15 0.15 0.15 1" contype="1" conaffinity="1"
+            friction="1.5 0.05 0.0001" density="1000" solref="0.004 1" solimp="0.9 0.95 0.001"/>
+      <joint type="slide" damping="5.0" armature="0.01"/>
+    </default>
+    <default class="env">
+      <geom type="box" rgba="0.55 0.55 0.58 1" contype="1" conaffinity="1"
+            friction="1.0 0.05 0.001" solref="0.004 1" solimp="0.95 0.99 0.001"/>
+    </default>
+    <default class="drive">
+      <geom type="box" rgba="0.75 0.20 0.20 1" contype="1" conaffinity="1"
+            friction="1.0 0.05 0.001" density="1800" solref="0.004 1" solimp="0.95 0.99 0.001"/>
+    </default>
+  </default>
+
+  <visual>
+    <global offwidth="640" offheight="480"/>
+    <quality shadowsize="2048"/>
+  </visual>
+
+  <worldbody>
+    <light name="top" pos="0.45 0 1.6" dir="0 0 -1" diffuse="0.8 0.8 0.8"/>
+    <light name="fill" pos="1.0 -1.0 1.2" dir="-1 1 -1" diffuse="0.4 0.4 0.4"/>
+    <geom name="floor" type="plane" size="3 3 0.1" rgba="0.20 0.20 0.22 1" contype="1" conaffinity="1"/>
+    <geom name="base_column" type="cylinder" pos="0 0 0.20" size="0.06 0.20"
+          rgba="0.30 0.30 0.30 1" contype="0" conaffinity="0"/>
+
+    <camera name="front" pos="1.25 0.0 0.55" mode="targetbody" target="chassis"/>
+    <camera name="side" pos="0.5 -1.10 0.55" mode="targetbody" target="chassis"/>
+
+    <!-- 6-DoF arm. Shoulder mounted on a 0.40 m column so the bay (x~0.54, z~0.30)
+         is reached at a comfortable elbow angle, not at near-singular full stretch. -->
+    <body name="shoulder" pos="0 0 0.40" childclass="arm">
+      <joint name="shoulder_pan" axis="0 0 1" range="-3.14 3.14"/>
+      <geom name="g_shoulder" type="sphere" size="0.05"/>
+      <body name="upper_arm" pos="0 0 0">
+        <joint name="shoulder_lift" axis="0 1 0" range="-1.0 2.5"/>
+        <geom name="g_upper" fromto="0 0 0 0 0 0.28" size="0.04"/>
+        <body name="forearm" pos="0 0 0.28">
+          <joint name="elbow" axis="0 1 0" range="-2.6 2.6"/>
+          <geom name="g_fore" fromto="0 0 0 0 0 0.24" size="0.035"/>
+          <body name="wrist1" pos="0 0 0.24">
+            <joint name="wrist_1" axis="1 0 0" range="-3.14 3.14"/>
+            <geom name="g_wrist1" fromto="0 0 0 0 0 0.06" size="0.030"/>
+            <body name="wrist2" pos="0 0 0.06">
+              <joint name="wrist_2" axis="0 1 0" range="-2.0 2.0"/>
+              <geom name="g_wrist2" fromto="0 0 0 0 0 0.05" size="0.028"/>
+              <body name="wrist3" pos="0 0 0.05">
+                <joint name="wrist_3" axis="1 0 0" range="-3.14 3.14"/>
+                <geom name="g_wrist3" fromto="0 0 0 0 0 0.03" size="0.025"/>
+                <body name="flange" pos="0 0 0.03">
+                  <geom name="g_flange" type="cylinder" pos="0 0 0.005" size="0.030 0.005"
+                        contype="0" conaffinity="0" rgba="0.2 0.2 0.2 1"/>
+                  <site name="ft_site" pos="0 0 0.01" size="0.010" rgba="1 1 0 1"/>
+                  <camera name="wrist" pos="0 -0.10 0.04" xyaxes="1 0 0 0 0.45 0.9"/>
+                  <body name="gripper_base" pos="0 0 0.01">
+                    <geom name="g_gripper" type="box" pos="0 0 0.015" size="0.040 0.035 0.015"
+                          contype="0" conaffinity="0" rgba="0.1 0.1 0.1 1"/>
+                    <site name="ee_site" pos="0 0 0.07" size="0.008" rgba="0 1 0 1"/>
+                    <body name="finger_left" pos="0 0.030 0.07" childclass="finger">
+                      <joint name="gl" axis="0 1 0" range="0 0.07"/>
+                      <geom name="g_finger_left" size="0.035 0.006 0.030"/>
+                    </body>
+                    <body name="finger_right" pos="0 -0.030 0.07" childclass="finger">
+                      <joint name="gr" axis="0 -1 0" range="0 0.07"/>
+                      <geom name="g_finger_right" size="0.035 0.006 0.030"/>
+                    </body>
+                  </body>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+
+    <!-- Staging cradle: flat pedestal (narrow in y so the gripper fingers clear it)
+         plus two low x end-stops to locate the drive. No y walls, so the fingers can
+         descend on the drive's long sides to grasp. -->
+    <body name="cradle" pos="0.40 0 0">
+      <geom class="env" name="g_cradle_top" type="box" pos="0 0 0.075" size="0.060 0.030 0.075"/>
+      <geom class="env" name="g_cradle_xm" type="box" pos="-0.085 0 0.152" size="0.005 0.050 0.002"/>
+      <geom class="env" name="g_cradle_xp" type="box" pos="0.085 0 0.152" size="0.005 0.050 0.002"/>
+    </body>
+
+    <!-- Server chassis with one drive bay: a slot open toward the arm (-x), formed by
+         top/bottom/two side walls and a back wall. Sub-millimeter to ~1.5 mm clearances
+         make insertion genuinely contact-rich. Insertion axis is +x. -->
+    <body name="chassis" pos="0.541 0 0.30">
+      <geom class="env" name="g_bay_bottom" type="box" pos="0 0 -0.0195" size="0.021 0.060 0.005"/>
+      <geom class="env" name="g_bay_top" type="box" pos="0 0 0.0195" size="0.021 0.060 0.005"/>
+      <geom class="env" name="g_bay_yp" type="box" pos="0 0.0573 0" size="0.021 0.005 0.0145"/>
+      <geom class="env" name="g_bay_ym" type="box" pos="0 -0.0573 0" size="0.021 0.005 0.0145"/>
+      <geom class="env" name="g_bay_back" type="box" pos="0.024 0 0" size="0.005 0.060 0.0195"/>
+      <site name="bay_socket" pos="0.019 0 0" size="0.008" rgba="0 0.4 1 1"/>
+      <site name="bay_mouth" pos="-0.021 0 0" size="0.008" rgba="0 1 1 1"/>
+    </body>
+
+    <!-- 3.5 inch drive on a freejoint. Declared AFTER the arm so the qpos layout is
+         j1..j6, gl, gr, then the freejoint (x y z qw qx qy qz). -->
+    <body name="drive" pos="0.40 0 0.163" childclass="drive">
+      <freejoint name="drive_free"/>
+      <geom name="g_drive" type="box" size="0.0735 0.0508 0.01305"/>
+      <geom name="g_connector" type="box" pos="0.0795 0 0" size="0.006 0.020 0.008" rgba="0.9 0.7 0.1 1"/>
+      <site name="drive_connector" pos="0.0855 0 0" size="0.006" rgba="1 0 1 1"/>
+      <site name="drive_grasp" pos="-0.030 0 0" size="0.006" rgba="1 0.5 0 1"/>
+    </body>
+  </worldbody>
+
+  <equality>
+    <!-- Couple the two slide fingers so one position actuator opens/closes both
+         symmetrically: gl = gr. -->
+    <joint joint1="gl" joint2="gr" polycoef="0 1 0 0 0"/>
+  </equality>
+
+  <actuator>
+    <!-- Torque (MIT mode) actuators, gear 1 so ctrl == joint torque. -->
+    <motor name="m_pan" joint="shoulder_pan" ctrlrange="-50 50"/>
+    <motor name="m_lift" joint="shoulder_lift" ctrlrange="-100 100"/>
+    <motor name="m_elbow" joint="elbow" ctrlrange="-60 60"/>
+    <motor name="m_wrist1" joint="wrist_1" ctrlrange="-20 20"/>
+    <motor name="m_wrist2" joint="wrist_2" ctrlrange="-20 20"/>
+    <motor name="m_wrist3" joint="wrist_3" ctrlrange="-10 10"/>
+    <!-- Gripper: one position actuator on gr; the equality mirrors gl. Command a width
+         below contact and let the force limit hold the drive. -->
+    <position name="m_grip" joint="gr" kp="1500" ctrlrange="0 0.06" forcerange="-80 80"/>
+  </actuator>
+
+  <sensor>
+    <force name="wrist_force" site="ft_site"/>
+    <torque name="wrist_torque" site="ft_site"/>
+  </sensor>
+
+  <keyframe>
+    <!-- home: arm folded forward with the tool pointing down above the cradle, gripper
+         open. qpos = j1..j6, gl, gr, drive(x y z qw qx qy qz). ctrl = 6 motors + grip. -->
+    <key name="home"
+         qpos="0 0.7 0.8 0 1.64 0 0.06 0.06 0.40 0 0.163 1 0 0 0"
+         ctrl="0 0 0 0 0 0 0.06"/>
+  </keyframe>
+</mujoco>
