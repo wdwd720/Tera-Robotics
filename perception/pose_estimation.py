@@ -52,3 +52,29 @@ class SimGroundTruthPerception(Perception):
 
     def bay_socket(self) -> np.ndarray:
         return self.robot.site_xpos("bay_socket")
+
+
+class NoisyPerception(Perception):
+    """Wraps a perception source and adds a fixed seeded offset to the reported bay pose.
+
+    Used to induce recovery scenarios: the coarse alignment is off, so the force-search
+    primitive must recover and still seat. The grasp stays accurate (a firm grip is held)."""
+
+    def __init__(self, inner: Perception, pos_noise: float, seed: int = 0) -> None:
+        self.inner = inner
+        rng = np.random.default_rng(seed)
+        # In-plane error only (x, y): the insertion height (z) is held firm by the
+        # controller, and offsets beyond the slot clearance in z are not recoverable.
+        self._offset = np.array([rng.uniform(-pos_noise, pos_noise), rng.uniform(-pos_noise, pos_noise), 0.0])
+
+    def grasp_point(self) -> np.ndarray:
+        return self.inner.grasp_point()
+
+    def connector_offset(self, ee_pos: np.ndarray) -> np.ndarray:
+        return self.inner.connector_offset(ee_pos)
+
+    def bay_mouth(self) -> np.ndarray:
+        return self.inner.bay_mouth() + self._offset
+
+    def bay_socket(self) -> np.ndarray:
+        return self.inner.bay_socket() + self._offset

@@ -35,6 +35,7 @@ class ReseatResult:
     grasped: bool
     estop: str | None
     peak_insert_force: float
+    search_retries: int = 0
     insert_force_trace: list[float] = field(default_factory=list)
     timeline: list[tuple[str, float]] = field(default_factory=list)
 
@@ -114,11 +115,20 @@ def run_reseat(
     base = robot.get_obs(with_images=False).ee_pose.copy()
     trace: list[float] = []
     peak = 0.0
+    retries = 0
+    over = False
 
     def mon(info: dict) -> None:
-        nonlocal peak
+        nonlocal peak, retries, over
+        f = abs(info["f_insert"])
         trace.append(info["f_insert"])
-        peak = max(peak, abs(info["f_insert"]))
+        peak = max(peak, f)
+        # Count force-search back-offs (rising edges past the bounded push force).
+        if f >= 15.0 and not over:
+            retries += 1
+            over = True
+        elif f < 12.0:
+            over = False
 
     seated = insert_with_search(
         robot, base, max_depth=0.09, grip=GRIP_HOLD, force_max=15.0,
@@ -143,6 +153,7 @@ def run_reseat(
         grasped=grasped,
         estop=robot.info().get("estop") if hasattr(robot, "info") else None,
         peak_insert_force=peak,
+        search_retries=retries,
         insert_force_trace=trace,
         timeline=timeline,
     )
