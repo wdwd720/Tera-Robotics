@@ -94,7 +94,7 @@
     <!-- Staging cradle: flat pedestal (narrow in y so the gripper fingers clear it)
          plus two low x end-stops to locate the drive. No y walls, so the fingers can
          descend on the drive's long sides to grasp. -->
-    <body name="cradle" pos="0.35 0 0">
+    <body name="cradle" pos="0.32 0 0">
       <geom class="env" name="g_cradle_top" type="box" pos="0 0 0.075" size="0.060 0.030 0.075"/>
       <geom class="env" name="g_cradle_xm" type="box" pos="-0.085 0 0.152" size="0.005 0.050 0.002"/>
       <geom class="env" name="g_cradle_xp" type="box" pos="0.085 0 0.152" size="0.005 0.050 0.002"/>
@@ -110,10 +110,11 @@
       <geom class="env" name="g_bay_ym" type="box" pos="0 -0.0573 0" size="0.021 0.005 0.0145"/>
       <geom class="env" name="g_bay_back" type="box" pos="0.024 0 0" size="0.005 0.060 0.0195"/>
       <!-- Central support rail under the drive near the seated position so a released
-           drive rests level (models the tray bottom). Starts past the lift column
-           (x>=0.46) to keep the lift path clear, narrow in y to clear the fingers, and
-           5 mm below the seated drive so the drive slides freely in and only drops onto
-           it on release. -->
+           drive rests level (models the tray bottom). Spans world x ~ [0.44, 0.52] to sit
+           under the seated drive center of mass, while staying clear of the lift path at
+           the cradle (x ~ 0.32, even under domain randomization). Narrow in y to clear the
+           gripper fingers, and ~5 mm below the seated drive so the drive slides freely in
+           and only drops onto it on release. -->
       <geom class="env" name="g_bay_rail" type="box" pos="-0.061 0 -0.022" size="0.040 0.030 0.004"/>
       <site name="bay_socket" pos="0.019 0 0" size="0.008" rgba="0 0.4 1 1"/>
       <site name="bay_mouth" pos="-0.021 0 0" size="0.008" rgba="0 1 1 1"/>
@@ -121,7 +122,7 @@
 
     <!-- 3.5 inch drive on a freejoint. Declared AFTER the arm so the qpos layout is
          j1..j6, gl, gr, then the freejoint (x y z qw qx qy qz). -->
-    <body name="drive" pos="0.35 0 0.163" childclass="drive">
+    <body name="drive" pos="0.32 0 0.163" childclass="drive">
       <freejoint name="drive_free"/>
       <geom name="g_drive" type="box" size="0.0735 0.0508 0.01305"/>
       <geom name="g_connector" type="box" pos="0.0795 0 0" size="0.006 0.020 0.008" rgba="0.9 0.7 0.1 1"/>
@@ -166,7 +167,7 @@
     <!-- home: arm folded forward with the tool pointing down above the cradle, gripper
          open. qpos = j1..j6, gl, gr, drive(x y z qw qx qy qz). ctrl = 6 motors + grip. -->
     <key name="home"
-         qpos="0 0.7 0.8 0 1.64 0 0.06 0.06 0.35 0 0.163 1 0 0 0"
+         qpos="0 0.7 0.8 0 1.64 0 0.06 0.06 0.32 0 0.163 1 0 0 0"
          ctrl="0 0 0 0 0 0 0.06"/>
   </keyframe>
 </mujoco>
