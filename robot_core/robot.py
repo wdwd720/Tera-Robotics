@@ -44,6 +44,10 @@ class Robot(ABC):
         Backends that cannot vary stiffness may ignore this (the default no-op).
         """
 
+    def estopped(self) -> bool:
+        """True once a soft e-stop has latched. Cleared by reset()."""
+        return False
+
     # Low-level contract every backend must expose.
     @abstractmethod
     def set_joint_torque(self, tau6: np.ndarray) -> None:

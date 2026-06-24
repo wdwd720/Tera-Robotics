@@ -67,7 +67,7 @@ class MujocoRobot(Robot):
         self.impedance = CartesianImpedance(self.model, self.ee_site)
         self._mode = "hold"
         self._renderers: dict[tuple[int, int], mujoco.Renderer] = {}
-        self._target = np.zeros(7)
+        self._hold_pose = np.zeros(7)
         self.reset()
 
     # ----- high level -------------------------------------------------------
@@ -76,23 +76,31 @@ class MujocoRobot(Robot):
         mujoco.mj_forward(self.model, self.data)
         self.safety.reset()
         self._mode = "hold"
-        self._target = site_pose(self.model, self.data, self.ee_site)
+        self._hold_pose = site_pose(self.model, self.data, self.ee_site)
         self._settle(steps=50)
         # No images here so episode reset and tests need no GL context. Callers that
         # want the first frame rendered call get_obs(with_images=True).
         return self.get_obs(with_images=False)
 
     def step(self, action: Action) -> Observation:
+        if self.safety.tripped:  # freeze after a latched e-stop until reset()
+            return self.get_obs(with_images=False)
         action = self.safety.clamp_action(action)
-        self._target[:3] = self.safety.clamp_pose_to_box(self._target[:3] + action.dpos)
+        # The action is a delta from the CURRENT ee pose: the servo target is
+        # ee + delta, recomputed each step. This is true ee-delta control and avoids
+        # the runaway of accumulating deltas into a persistent setpoint.
+        ee = site_pose(self.model, self.data, self.ee_site)
+        target = np.empty(7)
+        target[:3] = self.safety.clamp_pose_to_box(ee[:3] + action.dpos)
+        q = np.ascontiguousarray(ee[3:7].copy())
         drot = action.drot_xyz
         if np.linalg.norm(drot) > 0:
-            q = np.ascontiguousarray(self._target[3:7])
             mujoco.mju_quatIntegrate(q, np.ascontiguousarray(drot), 1.0)
-            self._target[3:7] = q / np.linalg.norm(q)
+            q /= np.linalg.norm(q)
+        target[3:7] = q
         grip_ctrl = action.grip * GRIP_CTRL_MAX
         for _ in range(self.substeps):
-            tau = self.impedance.torque(self.data, self._target, self._mode)
+            tau = self.impedance.torque(self.data, target, self._mode)
             self.data.ctrl[:N_JOINTS] = self.safety.clamp_torque(tau)
             self.data.ctrl[self.grip_act] = grip_ctrl
             mujoco.mj_step(self.model, self.data)
@@ -128,6 +136,9 @@ class MujocoRobot(Robot):
     def set_stiffness_mode(self, mode: str) -> None:
         self.impedance.stiffness(mode)  # validates
         self._mode = mode
+
+    def estopped(self) -> bool:
+        return self.safety.tripped
 
     # ----- low-level contract ----------------------------------------------
     def set_joint_torque(self, tau6: np.ndarray) -> None:
@@ -183,7 +194,7 @@ class MujocoRobot(Robot):
     # ----- helpers ----------------------------------------------------------
     def _settle(self, steps: int) -> None:
         for _ in range(steps):
-            tau = self.impedance.torque(self.data, self._target, "hold")
+            tau = self.impedance.torque(self.data, self._hold_pose, "hold")
             self.data.ctrl[:N_JOINTS] = self.safety.clamp_torque(tau)
             self.data.ctrl[self.grip_act] = GRIP_CTRL_MAX
             mujoco.mj_step(self.model, self.data)
