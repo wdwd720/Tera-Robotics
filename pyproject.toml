@@ -36,6 +36,8 @@ packages = [
   "eval",
   "perception",
   "teleop",
+  "app",
+  "app.dashboard",
 ]
 
 [tool.setuptools.package-data]
